@@ -229,7 +229,7 @@ class ConstraintLogitsProcessor(LogitsProcessor):
         logits = torch.log_softmax(logits / self.temperature, dim=-1)
 
         #print(torch.topk(logits[0],5),logits.shape)
-        print(logits)
+        #print(logits)
         return logits
 
 
@@ -296,14 +296,21 @@ class ConstraintLogitsProcessor(LogitsProcessor):
                 C = matmul_log(torch.flatten(C, start_dim=0, end_dim=1), beta) # (batch_size_ * num_states) * vocab_size
                 C = C.view(C_shape[0], C_shape[1], -1) # batch_size_ * num_states * vocab_size
 
+                #print('DEE: ', D_cache[prefix])
                 mask = torch.stack([VE_mask[D_cache[prefix]] for prefix in prefixes_batch], dim=0) # prefix_mask, batch_size_ * num_transitions
                 mask = mask[:, :, None] * EV_mask[None, :, :] # batch_size_ * num_transitions * num_states
                 mask = torch.transpose(mask, 1, 2) # batch_size_ * num_states * num_transitions
+                #print(mask)
 
                 mask_shape = mask.shape
                 mask = torch.matmul(torch.flatten(mask, start_dim=0, end_dim=1), T_mask) # (batch_size_ * num_states) * vocab_size
                 mask = mask.view(mask_shape[0], mask_shape[1], -1) # batch_size_ * num_states * vocab_size
                 mask = torch.nan_to_num(torch.log(mask), neginf=neginf)
+                # print(torch.topk(mask[0, 0], k=5))
+                # print(torch.topk(mask[0, 6], k=5))
+                # print(C.shape)
+                # print(torch.topk(C[0, 0, :], k=5))
+                # print(torch.topk(C[0, 6, :], k=5))
 
                 logits_batch = logsumexp(C + mask, dim=1) # batch_size_ * vocab_size
 
@@ -389,21 +396,31 @@ def rank_generated_ids(base_model, generated_ids, prompt_ids, suffix_ids,
 
     norms = torch.sum(logits_mask[:, 1:], dim=-1) ** length_penalty
     log_probs = torch.sum(log_probs * logits_mask[:, 1:], dim=-1) / norms
+    #print('LP: ', log_probs)
 
     generated_ids_sorted = [a for a, b in 
         sorted([(x, y) for x,y in zip(generated_ids, log_probs.tolist())], key=lambda x: x[1], reverse=True)]
 
     return generated_ids_sorted
 
-def populate_edge(edge_vocab=[], vocab_size=0, tokenizer=None, ALL=False): #edge_vocab: list of all accepted words for that edge
+def populate_edge(edge_vocab=[], vocab_size=0, tokenizer=None, ALL=False, inverse=False): #edge_vocab: list of all accepted words for that edge
     if (ALL):
         return np.ones((vocab_size,), dtype=bool)
     else:
         edge_set = np.zeros((vocab_size,), dtype=bool)
+        if inverse:
+            edge_set = np.ones((vocab_size, ), dtype=bool)
         edge_tokens = []
 
         for i in range(len(edge_vocab)):
-            edge_set[tokenizer.encode(edge_vocab[i], add_special_tokens=False)] = 1
+            if isinstance(edge_vocab[i], int): # token ids instead of string
+                edge_set[edge_vocab[i]] = 1
+                if inverse:
+                    edge_set[edge_vocab[i]] = 0
+            else:
+                edge_set[tokenizer.encode(edge_vocab[i], add_special_tokens=False)] = 1
+                if inverse:
+                    edge_set[tokenizer.encode(edge_vocab[i], add_special_tokens=False)] = 0
 
     return edge_set
 
